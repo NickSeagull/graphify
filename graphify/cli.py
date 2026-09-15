@@ -3803,6 +3803,12 @@ def dispatch_command(cmd: str) -> None:
                         for _marker in ("_callable", "_callable_class"):
                             if _node.get(_marker):
                                 _ctx_node[_marker] = _node[_marker]
+                        if _node.get("language") == "haskell" or str(_sf).endswith(".hs"):
+                            _ctx_node.update({
+                                _key: _value for _key, _value in _node.items()
+                                if _key.startswith("_haskell_")
+                                or _key in {"node_kind", "language"}
+                            })
                         _ctx_nodes.append(_ctx_node)
                     for _edge in _ctx_graph.get(
                         "links", _ctx_graph.get("edges", [])

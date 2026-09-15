@@ -49,6 +49,7 @@ from graphify.extractors.go import _GO_PREDECLARED_FUNCS, extract_go  # noqa: F4
 from graphify.extractors.json_config import extract_json  # noqa: F401
 from graphify.extractors.commonlisp import extract_commonlisp  # noqa: F401
 from graphify.extractors.markdown import extract_markdown, _MD_LINK_INDEX_CACHE  # noqa: F401
+from graphify.extractors.haskell import extract_haskell, resolve_haskell_calls  # noqa: F401
 from graphify.extractors.ocaml import extract_ocaml  # noqa: F401
 from graphify.extractors.pascal_forms import extract_delphi_form, extract_lazarus_form  # noqa: F401
 from graphify.extractors.powershell import extract_powershell, extract_powershell_manifest  # noqa: F401
@@ -2554,6 +2555,7 @@ _LANG_FAMILY_BY_EXT: dict[str, str] = {
     ".zig": "zig",
     ".ex": "elixir", ".exs": "elixir",
     ".jl": "julia",
+    ".hs": "haskell",
     ".dart": "dart",
     ".sh": "shell", ".bash": "shell",
     ".ps1": "powershell", ".psm1": "powershell", ".psd1": "powershell",
@@ -4637,6 +4639,9 @@ register_language_resolver(
 register_language_resolver(
     LanguageResolver("java_member_calls", frozenset({".java"}), _resolve_java_member_calls)
 )
+register_language_resolver(
+    LanguageResolver("haskell_calls", frozenset({".hs"}), resolve_haskell_calls)
+)
 # Pascal/Delphi cross-file inherited-method-call resolution: a call from a
 # manual descendant class to a method it inherits from an ancestor declared
 # in a DIFFERENT file (the common generated-base/manual-descendant split,
@@ -5743,6 +5748,7 @@ _DISPATCH: dict[str, Any] = {
     ".svelte": extract_svelte,
     ".astro": extract_astro,
     ".dart": extract_dart,
+    ".hs": extract_haskell,
     ".ml": extract_ocaml,
     ".mli": extract_ocaml,
     ".lisp": extract_commonlisp,
@@ -5803,6 +5809,7 @@ _EXTRA_FOR_EXTENSION = {
     ".hcl": "terraform",
     ".dm": "dm",
     ".dme": "dm",
+    ".hs": "haskell",
     ".ml": "ocaml",
     ".mli": "ocaml",
     ".lisp": "commonlisp",
@@ -6308,6 +6315,12 @@ def extract(
         bypass_cache = path.suffix in _JS_CACHE_BYPASS_SUFFIXES
         if not bypass_cache:
             cached = load_cached(path, root, cache_root=cache_location)
+            # The local Haskell adapter gained typed declarations and reference
+            # facts without a package-version bump. Old AST shards cannot supply
+            # those facts, so refresh only Haskell's old schema.
+            if (cached is not None and path.suffix == ".hs"
+                    and cached.get("_haskell_schema") != 3):
+                cached = None
             if cached is not None:
                 per_file[i] = cached
                 continue
@@ -6339,6 +6352,25 @@ def extract(
                 "nodes": [], "edges": [],
                 "error": "internal: no extraction result produced",
             }
+
+    # Cabal manifests may change while the Haskell source bytes (and hence its
+    # AST cache key) remain unchanged. Refresh portable component context every
+    # run; unchanged incremental nodes retain their persisted context.
+    if any(path.suffix == ".hs" for path in paths):
+        from graphify.extractors.haskell_cabal import file_component_context
+        for path, result in zip(paths, per_file):
+            if path.suffix == ".hs":
+                context = file_component_context(path)
+                for node in result.get("nodes", []):
+                    if node.get("source_file"):
+                        if node.get("_haskell_module"):
+                            node["_haskell_cabal"] = context
+                        if context.get("package"):
+                            node["package"] = context["package"]
+                            node["components"] = [
+                                f"{item['kind']}:{item['name']}"
+                                for item in context.get("components", [])
+                            ]
 
     # #1666: surface any source file an extractor accepted but that produced zero
     # nodes (not even a file node). Such a file is silently absent from the graph,
@@ -6468,7 +6500,8 @@ def extract(
         # dissolved multiple lines (the genuine #2551 Kotlin one-line-body /
         # #2520 Luau case). `multiline_error` is absent from pre-fix cached
         # results, so those fall back to the file-node-only arm.
-        if len(_res.get("nodes", [])) <= 1 or _pe.get("multiline_error"):
+        if (len(_res.get("nodes", [])) <= 1 or _pe.get("multiline_error")
+                or _pe.get("material_recovery")):
             _rel = os.path.relpath(str(_p), str(root)).replace("\\", "/")
             # Symbols recovered from the file, excluding its own file node. This
             # is what separates the two cases the warning otherwise blurs: a file
@@ -6510,6 +6543,10 @@ def extract(
         all_nodes.extend(result.get("nodes", []))
         all_edges.extend(result.get("edges", []))
         all_raw_calls.extend(result.get("raw_calls", []))
+        # Haskell type/reference facts carry the same caller IDs as calls and
+        # must participate in every shared ID remap. The generic call resolver
+        # skips language=haskell; its own tail pass consumes raw_references.
+        all_raw_calls.extend(result.get("raw_references", []))
     # Function / method / class def ids for the cross-file indirect_call callable
     # guard. Built from the `_callable` node marker AFTER the id-remap / disambiguation
     # passes below (which rewrite node ids), so it can never go stale — see the
@@ -7205,6 +7242,11 @@ def extract(
     _JS_TS_CALL_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
     _go_module_cache: dict[Path, str | None] = {}
     for rc in all_raw_calls:
+        # Haskell calls retain module/import context and are resolved by the
+        # language-specific tail resolver. Bare-name matching here would throw
+        # away that evidence and bind common names such as map/yield incorrectly.
+        if rc.get("language") == "haskell":
+            continue
         callee = rc.get("callee", "")
         if not callee:
             continue
@@ -7420,9 +7462,18 @@ def extract(
     if resolution_context_nodes or resolution_context_edges:
         _rl_nodes = list(resolution_nodes)
         _rl_edges = all_edges + list(resolution_context_edges or [])
-        _n0, _e0 = len(_rl_nodes), len(_rl_edges)
+        _existing_node_ids = {
+            node.get("id") for node in _rl_nodes if node.get("id")
+        }
+        _e0 = len(_rl_edges)
         run_language_resolvers(paths, per_file, _rl_nodes, _rl_edges)
-        all_nodes.extend(_rl_nodes[_n0:])
+        # Resolvers may prune scratch-only stubs before appending new targets.
+        # Capture their node delta by identity rather than by list position, so
+        # a removal cannot shift a newly appended node below an old length.
+        all_nodes.extend(
+            node for node in _rl_nodes
+            if node.get("id") and node["id"] not in _existing_node_ids
+        )
         all_edges.extend(_rl_edges[_e0:])
     else:
         run_language_resolvers(paths, per_file, all_nodes, all_edges)

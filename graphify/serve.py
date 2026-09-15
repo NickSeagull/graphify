@@ -303,6 +303,7 @@ _SOURCE_MATCH_BONUS = 0.5
 # toward term coverage, so a long rationale adds recall without winning back
 # an exact-label tier it did not earn.
 _RATIONALE_MATCH_BONUS = 0.75
+_HASKELL_METADATA_MATCH_BONUS = 2.0
 
 
 def _compute_idf(G: nx.Graph, terms: list[str]) -> dict[str, float]:
@@ -351,6 +352,38 @@ def _node_rationale_text(data: dict) -> str:
     return _strip_diacritics(str(raw)).lower()
 
 
+def _haskell_metadata_text(data: dict) -> str:
+    """Searchable public Haskell metadata, excluding private resolver state."""
+    if data.get("language") != "haskell":
+        return ""
+    values = [
+        data.get("node_kind"), data.get("written_signature"),
+        data.get("haddock_summary"), data.get("package"),
+        *(data.get("components") or []),
+    ]
+    return _strip_diacritics(" ".join(str(value) for value in values if value)).lower()
+
+
+def _haskell_display_fields(data: dict) -> list[tuple[str, str]]:
+    """Compact, public Haskell fields for query and get-node output."""
+    if data.get("language") != "haskell":
+        return []
+    components = data.get("components") or []
+    if not isinstance(components, (list, tuple)):
+        components = [components]
+    raw = [
+        ("kind", data.get("node_kind")),
+        ("signature", data.get("written_signature")),
+        ("doc", data.get("haddock_summary")),
+        ("package", data.get("package")),
+        ("components", ",".join(str(item) for item in components if item)),
+        ("end", f"L{data['end_line']}" if data.get("end_line") else ""),
+    ]
+    return [
+        (key, sanitize_label(str(value))[:240]) for key, value in raw if value
+    ]
+
+
 def _node_search_text(data: dict, nid: str) -> str:
     """Concatenate every field _score_nodes / _find_node match a query against, so
     one trigram index over this text is a complete candidate generator for both.
@@ -392,6 +425,9 @@ def _node_search_text(data: dict, nid: str) -> str:
     rationale = _node_rationale_text(data)
     if rationale:
         fields += (rationale,)
+    haskell_metadata = _haskell_metadata_text(data)
+    if haskell_metadata:
+        fields += (haskell_metadata,)
     return "\x00".join(fields)
 
 
@@ -569,6 +605,7 @@ def _score_query(
         label_tokens = " ".join(_search_tokens(data.get("label") or ""))
         source = (data.get("source_file") or "").lower()
         rationale = _node_rationale_text(data)
+        haskell_metadata = _haskell_metadata_text(data)
         # `nid_lower` is needed both by the full-query tier (`if joined`) and by
         # the per-token singleton tier (joined-singlet exact-match check). When
         # neither runs (`joined` empty AND not collecting seeds) skip the call;
@@ -606,6 +643,7 @@ def _score_query(
         matched = 0
         tiered = 0.0
         for t in norm_terms:
+            matched_before_term = matched
             w = idf.get(t, 1.0)
             # Per-tier contributions for this token, kept separate so the
             # singleton tracking below can reuse them without re-evaluating
@@ -634,6 +672,12 @@ def _score_query(
             if rationale and t in rationale:
                 rationale_value = _RATIONALE_MATCH_BONUS * w
                 score += rationale_value
+            metadata_value = 0.0
+            if haskell_metadata and t in haskell_metadata:
+                metadata_value = _HASKELL_METADATA_MATCH_BONUS * w
+                score += metadata_value
+                if matched == matched_before_term:
+                    matched += 1
             tiered += tier_value
             if collect_per_term_seeds and best_by_term is not None:
                 # Singleton score for [t] on this node, mirroring
@@ -652,7 +696,10 @@ def _score_query(
                     singleton = _PREFIX_MATCH_BONUS * 10 * w
                 else:
                     singleton = 0.0
-                singleton += tier_value + substr_value + source_value + rationale_value
+                singleton += (
+                    tier_value + substr_value + source_value + rationale_value
+                    + metadata_value
+                )
                 if singleton > 0:
                     # Tie-break key mirrors the legacy sort+max(degree):
                     # (-singleton, -degree, label_len, nid) — the minimum
@@ -1085,7 +1132,8 @@ def _subgraph_to_text(G: nx.Graph, nodes: set[str], edges: list[tuple], token_bu
             f"[src={sanitize_label(str(d.get('source_file', '')))} "
             f"loc={sanitize_label(str(d.get('source_location', '')))} "
             f"community={sanitize_label(str(d.get('community_name') or d.get('community', '')))}"
-            f"{learning_suffix}]"
+            f"{learning_suffix}"
+            f"{''.join(f' {key}={value}' for key, value in _haskell_display_fields(d))}]"
         )
         lines.append(line)
     for u, v in edges:
@@ -1474,6 +1522,23 @@ def _resolve_single_node(G: nx.Graph, label: str) -> tuple[str | None, str | Non
             "Retry with the repo-relative path or the full node id."
         )
     return matches[0], None
+
+
+def _node_detail_text(G: nx.Graph, nid: str) -> str:
+    """Render the public get_node payload for an already-resolved node."""
+    d = G.nodes[nid]
+    return "\n".join([
+        f"Node: {sanitize_label(d.get('label', nid))}",
+        f"  ID: {sanitize_label(nid)}",
+        f"  Source: {sanitize_label(str(d.get('source_file', '')))} {sanitize_label(str(d.get('source_location', '')))}",
+        *([f"  Defined in: {sanitize_label(str(d.get('definition_file', '')))} "
+           f"{sanitize_label(str(d.get('definition_location', '')))}"]
+          if d.get("definition_file") else []),
+        f"  Type: {sanitize_label(str(d.get('file_type', '')))}",
+        *[f"  {key.title()}: {value}" for key, value in _haskell_display_fields(d)],
+        f"  Community: {sanitize_label(str(d.get('community_name') or d.get('community', '')))}",
+        f"  Degree: {G.degree(nid)}",
+    ])
 
 
 def _shortest_path_text(G: nx.Graph, arguments: dict) -> str:
@@ -1880,22 +1945,8 @@ def _build_server(graph_path: str):
         nid, err = _resolve_single_node(G, label)
         if err:
             return err
-        d = G.nodes[nid]
         # Sanitise every LLM-derived field before concatenation (F-010).
-        return "\n".join([
-            f"Node: {sanitize_label(d.get('label', nid))}",
-            f"  ID: {sanitize_label(nid)}",
-            f"  Source: {sanitize_label(str(d.get('source_file', '')))} {sanitize_label(str(d.get('source_location', '')))}",
-            # A C/C++/ObjC symbol declared in a header and defined in the sibling
-            # impl file is ONE node keyed to the header, so Source alone points at
-            # the declaration. Name where it is implemented too, when known.
-            *([f"  Defined in: {sanitize_label(str(d.get('definition_file', '')))} "
-               f"{sanitize_label(str(d.get('definition_location', '')))}"]
-              if d.get("definition_file") else []),
-            f"  Type: {sanitize_label(str(d.get('file_type', '')))}",
-            f"  Community: {sanitize_label(str(d.get('community_name') or d.get('community', '')))}",
-            f"  Degree: {G.degree(nid)}",
-        ])
+        return _node_detail_text(G, nid)
 
     def _tool_get_neighbors(arguments: dict) -> str:
         label = arguments["label"].lower()

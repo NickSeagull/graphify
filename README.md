@@ -267,6 +267,7 @@ Codex users also need `multi_agent = true` under `[features]` in `~/.codex/confi
 | `dm` | BYOND DreamMaker `.dm`/`.dme` AST extraction (may need a C compiler + `python3-dev` if no wheel matches your platform) | `uv tool install "graphifyy[dm]"` |
 | `terraform` | Terraform / HCL `.tf`/`.tfvars`/`.hcl` AST extraction | `uv tool install "graphifyy[terraform]"` |
 | `pascal` | Pascal / Delphi `.pas`/`.dpr`/`.dpk`/`.inc` AST extraction (more accurate `calls`/`inherits` edges; falls back to a regex extractor when absent) | `uv tool install "graphifyy[pascal]"` |
+| `haskell` | Haskell `.hs` AST extraction | `uv tool install "graphifyy[haskell]"` |
 | `ocaml` | OCaml `.ml`/`.mli` AST extraction | `uv tool install "graphifyy[ocaml]"` |
 | `commonlisp` | Common Lisp `.lisp`/`.cl`/`.lsp`/`.asd` AST extraction | `uv tool install "graphifyy[commonlisp]"` |
 | `robot` | Robot Framework `.robot`/`.resource` extraction (suites, test cases, keywords, keyword-call and resource/library import edges) | `uv tool install "graphifyy[robot]"` |
@@ -339,9 +340,10 @@ To remove graphify from all platforms at once: `graphify uninstall` (add `--purg
 
 | Type | Extensions |
 |------|-----------|
-| Code (37 tree-sitter grammars) | `.py .ts .mts .cts .js .jsx .tsx .mjs .go .rs .java .c .cpp .cc .cxx .h .hpp .cu .cuh .metal .rb .cs .kt .kts .scala .php .swift .lua .luau .toc .zig .ps1 .psm1 .psd1 .ex .exs .m .mm .ml .mli .jl .vue .svelte .astro .groovy .gradle .dart .v .sv .svh .sql .f .f90 .f95 .f03 .f08 .pas .pp .dpr .dpk .lpr .inc .dfm .lfm .lpk .sh .bash .json .dm .dme .dmi .dmm .dmf .sln .slnx .csproj .fsproj .vbproj .xaml .razor .cshtml` (`.dm`/`.dme` requires `uv tool install graphifyy[dm]`, `.ml`/`.mli` requires `uv tool install graphifyy[ocaml]`; `.mts`/`.cts` reuse the TypeScript grammar, `.cc`/`.cxx` and CUDA `.cu`/`.cuh` and Metal `.metal` reuse the C++ grammar) |
+| Code (38 tree-sitter grammars) | `.py .ts .mts .cts .js .jsx .tsx .mjs .go .rs .java .c .cpp .cc .cxx .h .hpp .cu .cuh .metal .rb .cs .kt .kts .scala .php .swift .lua .luau .toc .zig .ps1 .psm1 .psd1 .ex .exs .m .mm .ml .mli .hs .jl .vue .svelte .astro .groovy .gradle .dart .v .sv .svh .sql .f .f90 .f95 .f03 .f08 .pas .pp .dpr .dpk .lpr .inc .dfm .lfm .lpk .sh .bash .json .dm .dme .dmi .dmm .dmf .sln .slnx .csproj .fsproj .vbproj .xaml .razor .cshtml` (`.dm`/`.dme` requires `uv tool install graphifyy[dm]`, `.ml`/`.mli` requires `uv tool install graphifyy[ocaml]`; `.mts`/`.cts` reuse the TypeScript grammar, `.cc`/`.cxx` and CUDA `.cu`/`.cuh` and Metal `.metal` reuse the C++ grammar) |
 | Salesforce Apex | `.cls .trigger` (regex-based; classes, interfaces, enums, methods, triggers, SOQL/DML edges) |
 | Terraform / HCL | `.tf .tfvars .hcl` (requires `uv tool install graphifyy[terraform]`) |
+| Haskell | `.hs` (requires `uv tool install graphifyy[haskell]`); declarations, signatures, Haddock summaries, imports/reexports, calls and type relationships; Cabal component visibility |
 | OCaml | `.ml .mli` (requires `uv tool install graphifyy[ocaml]`) |
 | Common Lisp | `.lisp .cl .lsp .asd` (requires `uv tool install graphifyy[commonlisp]`) |
 | Robot Framework | `.robot .resource` (via the official `robot.api` parser, requires `uv tool install graphifyy[robot]`; suites, test cases, user keywords, keyword-call and Resource/Library/Variables import edges) |
@@ -356,6 +358,28 @@ To remove graphify from all platforms at once: `graphify uninstall` (add `--purg
 | YouTube / URLs | any video URL (requires `uv tool install graphifyy[video]`) |
 
 Code is extracted **locally with no API calls** (AST via tree-sitter). Everything else goes through your AI assistant's model API.
+
+### Haskell without GHC
+
+Haskell support uses source syntax and nearby `.cabal` manifests. It resolves
+qualified imports, aliases, named reexports and constructor exports through
+local modules, and distinguishes types from constructors with the same name.
+Queries include declaration kinds, written signatures, short Haddock summaries,
+and package/component membership. Type references, aliases, constraints and
+instance heads are graph relationships. Frequently used helpers have less
+influence on community grouping while their original call edges remain intact.
+
+Cabal dependencies and exposed modules constrain resolution between known
+components. Conditional branches are recorded conservatively: a dependency that
+exists only under an unevaluated flag does not establish visibility. Without
+manifest evidence, resolution falls back to source modules. `graphify watch`
+refreshes Haskell resolution when `.cabal` files change; `graphify update .`
+also refreshes it, including cached source files.
+
+This provides source navigation, not inferred types or compiler-verified dispatch.
+External dependencies without indexed source, ambiguous names, generated code,
+Template Haskell expansion and active CPP/Cabal flag selection remain unresolved
+or unverified. Parser recovery warnings identify files needing closer inspection.
 
 Google Drive for desktop `.gdoc`, `.gsheet`, and `.gslides` files are shortcut
 pointers, not document content. To include native Google Docs, Sheets, and Slides

@@ -4,6 +4,7 @@ import contextlib
 import inspect
 import io
 import json
+import math
 import sys
 import networkx as nx
 
@@ -220,10 +221,62 @@ def community_member_sigs(communities: dict[int, list[str]]) -> dict[int, str]:
     return sigs
 
 
+def _haskell_clustering_projection(G: nx.Graph) -> nx.Graph:
+    """Reduce ubiquitous Haskell calls' clustering influence, preserving facts.
+
+    A function used by many files carries less evidence that those callers belong
+    to the same subsystem. Count distinct caller files (not repeated call sites)
+    and scale only calls to targets reached from at least ten files. The square
+    root keeps those dependencies useful without allowing pipeline/test helpers
+    to overpower domain links. This projection never mutates the query graph.
+    Undirected Graphify graphs preserve direction in their _src/_tgt attributes.
+    Edges without recoverable direction retain their existing weight.
+    """
+    def endpoints(source, target, attrs):
+        if G.is_directed():
+            return source, target
+        original = attrs.get("_src"), attrs.get("_tgt")
+        if set(original) == {source, target}:
+            return original
+        return None
+
+    caller_files: dict[str, set[str]] = {}
+    for source, target, attrs in G.edges(data=True):
+        oriented = endpoints(source, target, attrs)
+        if oriented is None:
+            continue
+        source, target = oriented
+        node = G.nodes[target]
+        if attrs.get("relation") != "calls" or not (
+            node.get("language") == "haskell"
+            or str(node.get("source_file", "")).endswith(".hs")
+        ):
+            continue
+        source_file = G.nodes[source].get("source_file") or attrs.get("source_file")
+        if source_file:
+            caller_files.setdefault(target, set()).add(str(source_file))
+    factors = {
+        target: 1.0 / math.sqrt(len(files))
+        for target, files in caller_files.items() if len(files) >= 10
+    }
+    if not factors:
+        return G
+    projected = G.copy()
+    for source, target, attrs in projected.edges(data=True):
+        oriented = endpoints(source, target, attrs)
+        if oriented is None:
+            continue
+        _, target = oriented
+        if attrs.get("relation") == "calls" and target in factors:
+            attrs["weight"] = float(attrs.get("weight", 1.0)) * factors[target]
+    return projected
+
+
 def cluster(
     G: nx.Graph,
     resolution: float = 1.0,
     exclude_hubs_percentile: float | None = None,
+    downweight_haskell_hubs: bool = True,
 ) -> dict[int, list[str]]:
     """Run Leiden community detection. Returns {community_id: [node_ids]}.
 
@@ -240,9 +293,14 @@ def cluster(
         percentile are excluded from partitioning and reattached to their
         majority-vote neighbour community afterwards. Useful for staging/utility
         super-hubs that inflate god-node rankings (#919).
+    downweight_haskell_hubs: reduce the clustering influence of Haskell callees
+        used across many files. Only partition weights change; query edges and
+        their original weights remain intact. False reproduces legacy grouping.
     """
     if G.number_of_nodes() == 0:
         return {}
+    if downweight_haskell_hubs:
+        G = _haskell_clustering_projection(G)
     if G.is_directed():
         G = G.to_undirected()
     if G.number_of_edges() == 0:

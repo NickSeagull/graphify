@@ -1090,7 +1090,7 @@ wheels = [
 
 [[package]]
 name = "graphifyy"
-version = "0.9.53"
+version = "0.9.56"
 source = { editable = "." }
 dependencies = [
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1149,6 +1149,7 @@ all = [
     { name = "tiktoken" },
     { name = "tree-sitter-commonlisp" },
     { name = "tree-sitter-dm" },
+    { name = "tree-sitter-haskell" },
     { name = "tree-sitter-hcl" },
     { name = "tree-sitter-ocaml" },
     { name = "tree-sitter-pascal" },
@@ -1180,6 +1181,9 @@ gemini = [
 ]
 google = [
     { name = "openpyxl" },
+]
+haskell = [
+    { name = "tree-sitter-haskell" },
 ]
 kimi = [
     { name = "openai" },
@@ -1257,6 +1261,7 @@ dev = [
     { name = "setuptools" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tree-sitter-commonlisp" },
+    { name = "tree-sitter-haskell" },
     { name = "tree-sitter-hcl" },
     { name = "tree-sitter-ocaml" },
     { name = "wheel" },
@@ -1324,6 +1329,8 @@ requires-dist = [
     { name = "tree-sitter-fortran", specifier = ">=0.6,<0.8" },
     { name = "tree-sitter-go", specifier = ">=0.23,<0.26" },
     { name = "tree-sitter-groovy", specifier = ">=0.1,<0.3" },
+    { name = "tree-sitter-haskell", marker = "extra == 'all'", specifier = ">=0.23.1,<0.24" },
+    { name = "tree-sitter-haskell", marker = "extra == 'haskell'", specifier = ">=0.23.1,<0.24" },
     { name = "tree-sitter-hcl", marker = "extra == 'all'" },
     { name = "tree-sitter-hcl", marker = "extra == 'terraform'" },
     { name = "tree-sitter-java", specifier = ">=0.23,<0.25" },
@@ -1355,7 +1362,7 @@ requires-dist = [
     { name = "yt-dlp", marker = "extra == 'all'", specifier = ">=2026.6.9" },
     { name = "yt-dlp", marker = "extra == 'video'", specifier = ">=2026.6.9" },
 ]
-provides-extras = ["mcp", "neo4j", "falkordb", "pdf", "watch", "svg", "leiden", "office", "google", "postgres", "video", "kimi", "ollama", "bedrock", "anthropic", "gemini", "openai", "chinese", "sql", "pascal", "dm", "terraform", "ocaml", "commonlisp", "robot", "all"]
+provides-extras = ["mcp", "neo4j", "falkordb", "pdf", "watch", "svg", "leiden", "office", "google", "postgres", "video", "kimi", "ollama", "bedrock", "anthropic", "gemini", "openai", "chinese", "sql", "pascal", "dm", "terraform", "ocaml", "haskell", "commonlisp", "robot", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1373,6 +1380,7 @@ dev = [
     { name = "setuptools", specifier = ">=82.0.1" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
     { name = "tree-sitter-commonlisp", specifier = ">=0.4.1" },
+    { name = "tree-sitter-haskell", specifier = ">=0.23.1,<0.24" },
     { name = "tree-sitter-hcl", specifier = ">=1.2.0" },
     { name = "tree-sitter-ocaml", specifier = ">=0.25.0" },
     { name = "wheel", specifier = ">=0.47.0" },
@@ -4660,6 +4668,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/80/e6/06aab07566e848c32fba90d7a6419da5fbcd2f25d63ba3e29faf62b8561f/tree_sitter_groovy-0.1.2-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:beda8f7b0c596e20cabc75fc076a3e6e9af8318e30c1869df6a036183a8cdd33", size = 132553, upload-time = "2024-11-19T04:33:02.844Z" },
     { url = "https://files.pythonhosted.org/packages/7a/2d/7e8fd76d9c1993c4b4f85a75e87698d85e845068d65972c9bf0458cb2dd5/tree_sitter_groovy-0.1.2-cp39-abi3-win_amd64.whl", hash = "sha256:bb8b20e2c92a18509ad3b830aeba9f5754778903e7dfd6999c3efb3c79c43d76", size = 104517, upload-time = "2024-11-19T04:33:04.47Z" },
     { url = "https://files.pythonhosted.org/packages/9d/e3/50c719d09a4495672226b2359b2701360fdef022bc86dedef9fc16d3959c/tree_sitter_groovy-0.1.2-cp39-abi3-win_arm64.whl", hash = "sha256:1942a9a1b22e154da9bbf1b03e6b4dbec4211b1109d24bcf4c12b006cbc04037", size = 102508, upload-time = "2024-11-19T04:33:06.101Z" },
+]
+
+[[package]]
+name = "tree-sitter-haskell"
+version = "0.23.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/33/113b15c85be3c12ba46f353214b3152639190d970ad1739607952998216d/tree_sitter_haskell-0.23.1.tar.gz", hash = "sha256:4e3428b790f2e43bd96a474ed00dc8a8e222c3c50be80b59a2cf73a9895aa652", size = 808705, upload-time = "2024-11-10T18:11:30.523Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/9b/4ea8c9b7e4706ac7de6f4958bff33ff37b521f348a5439516872939d7933/tree_sitter_haskell-0.23.1-cp39-abi3-macosx_10_9_x86_64.whl", hash = "sha256:f5fee07409e90111107319df223a247a1cf4cb5223f8639219a6b7a7bbde3fd2", size = 320189, upload-time = "2024-11-10T18:11:19.748Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/c3/efb7849a4b3f18d584901a2d18e39076320a4231756b68892edeff19ff05/tree_sitter_haskell-0.23.1-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:9df79012d26d47ee19988fc3084e369eeea4494c27389f78568151d7bc4a710e", size = 349631, upload-time = "2024-11-10T18:11:20.897Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/3d/764266c1e78c1b7efcbcb6d7fff4c7ec03199218cfb74da0e40fccbc9a07/tree_sitter_haskell-0.23.1-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:81b817ae855c5505d40a549666d875efaa1d0ff584e36ba76b6dabce9071fd11", size = 427409, upload-time = "2024-11-10T18:11:22.623Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/e2/408092e0848634bb74f7b621218d209022adedd67284d9aeaf41cbb9c9d3/tree_sitter_haskell-0.23.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fe2d286cc187464ee14259f6765b09d588916e0e6ff5572dea74290f30f3988d", size = 424608, upload-time = "2024-11-10T18:11:24.299Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/02/152d9fdc07e0ce452d4ec5d3d3b0a6c53b3b42d9c10b5d66b23126227b12/tree_sitter_haskell-0.23.1-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:6aa2d29b57842e67ab386aa090072eff64205f42cbd541793b61b1142017012c", size = 417808, upload-time = "2024-11-10T18:11:25.954Z" },
+    { url = "https://files.pythonhosted.org/packages/87/75/df1ecd0858e23ca03dc2cf15755538c5a41cc5f024c31bd4d9a1daa4f5f1/tree_sitter_haskell-0.23.1-cp39-abi3-win_amd64.whl", hash = "sha256:33580ee28caeb38a87e94c3d7ca62e1edb376882085c61f8923cb892a75cbed4", size = 314353, upload-time = "2024-11-10T18:11:27.835Z" },
+    { url = "https://files.pythonhosted.org/packages/13/09/9339957119fc91ba400183305ee6ca96a6b741678eabb961b4beaffc9454/tree_sitter_haskell-0.23.1-cp39-abi3-win_arm64.whl", hash = "sha256:b58be70419fe684e6b3990e98b08c913ea9c0583bbf32e7181c1aaece417da7f", size = 312365, upload-time = "2024-11-10T18:11:29.419Z" },
 ]
 
 [[package]]

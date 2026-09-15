@@ -813,6 +813,22 @@ def _disambiguate_colliding_node_ids(
     so they must collapse to one shared node — disambiguating them by path would
     scatter a single module across N file-qualified duplicates.
     """
+    source_key_cache: dict[str, str] = {}
+
+    def cached_source_key(source_file: str) -> str:
+        # A large file contributes many nodes, edges, and raw references with
+        # the same source path. Preserve _source_key's exact normalization and
+        # fallback behavior while avoiding a Path.resolve()/stat walk for every
+        # occurrence during this pass.
+        written = str(source_file)
+        if written not in source_key_cache:
+            source_key_cache[written] = _source_key(written, root)
+        return source_key_cache[written]
+
+    def node_source_key(node: dict) -> str:
+        source_file = str(node.get("source_file", ""))
+        return cached_source_key(source_file or str(node.get("origin_file", "")))
+
     by_id: dict[str, list[dict]] = {}
     for node in nodes:
         if node.get("type") in ("module", "namespace"):
@@ -824,7 +840,7 @@ def _disambiguate_colliding_node_ids(
     remap: dict[tuple[str, str], str] = {}
     ambiguous_ids: set[str] = set()
     for old_id, group in by_id.items():
-        source_keys = {_node_disambiguation_source_key(node, root) for node in group}
+        source_keys = {node_source_key(node) for node in group}
         if len(group) < 2 or len(source_keys) < 2:
             continue
         ambiguous_ids.add(old_id)
@@ -848,15 +864,15 @@ def _disambiguate_colliding_node_ids(
             seen[nid] = seen.get(nid, 0) + 1
         needs_hash = {sk for sk, nid in naive.items() if seen.get(nid, 0) > 1}
         for node in group:
-            source_key = _node_disambiguation_source_key(node, root)
-            if not source_key:
+            node_key = node_source_key(node)
+            if not node_key:
                 continue
-            if source_key in needs_hash:
-                salt = hashlib.sha1(source_key.encode("utf-8")).hexdigest()[:6]
-                new_id = _make_id(source_key, old_id, salt)
+            if node_key in needs_hash:
+                salt = hashlib.sha1(node_key.encode("utf-8")).hexdigest()[:6]
+                new_id = _make_id(node_key, old_id, salt)
             else:
-                new_id = naive.get(source_key) or _make_id(source_key, old_id)
-            remap[(old_id, source_key)] = new_id
+                new_id = naive.get(node_key) or _make_id(node_key, old_id)
+            remap[(old_id, node_key)] = new_id
             if new_id != old_id:
                 node["id"] = new_id
 
@@ -891,7 +907,7 @@ def _disambiguate_colliding_node_ids(
     header_remaps: dict[str, str] = {}
     for old_id in ambiguous_ids:
         for node in by_id.get(old_id, []):
-            sk = _node_disambiguation_source_key(node, root)
+            sk = node_source_key(node)
             if sk and Path(sk).suffix.lower() in _HEADER_SUFFIXES:
                 new_id = remap.get((old_id, sk))
                 if new_id:
@@ -899,7 +915,7 @@ def _disambiguate_colliding_node_ids(
                     break
 
     for edge in edges:
-        edge_source_key = _source_key(str(edge.get("source_file", "")), root)
+        edge_source_key = cached_source_key(str(edge.get("source_file", "")))
         source_key = (edge.get("source", ""), edge_source_key)
         # An import/re-export edge's target is a FILE node that can collapse with a
         # same-basename cross-extension sibling (foo.ts vs foo.mjs, #1814). Keying
@@ -911,7 +927,7 @@ def _disambiguate_colliding_node_ids(
         # hint's only reader, and its absolute path must not persist into graph.json.
         target_file = edge.pop("target_file", None)
         if target_file and edge.get("relation") in ("imports", "imports_from", "re_exports"):
-            target_edge_key = _source_key(str(target_file), root)
+            target_edge_key = cached_source_key(str(target_file))
         else:
             target_edge_key = edge_source_key
         target_key = (edge.get("target", ""), target_edge_key)
@@ -933,7 +949,7 @@ def _disambiguate_colliding_node_ids(
             edge["target"] = unambiguous_remaps[str(edge["target"])]
 
     for raw_call in raw_calls:
-        call_source_key = _source_key(str(raw_call.get("source_file", "")), root)
+        call_source_key = cached_source_key(str(raw_call.get("source_file", "")))
         caller_key = (raw_call.get("caller_nid", ""), call_source_key)
         if caller_key in remap:
             raw_call["caller_nid"] = remap[caller_key]

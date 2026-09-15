@@ -275,7 +275,8 @@ from graphify.detect import (
     _is_ignored,
 )
 
-_WATCHED_EXTENSIONS = CODE_EXTENSIONS | DOC_EXTENSIONS | PAPER_EXTENSIONS | IMAGE_EXTENSIONS
+_AST_CONFIG_EXTENSIONS = {".cabal"}
+_WATCHED_EXTENSIONS = CODE_EXTENSIONS | DOC_EXTENSIONS | PAPER_EXTENSIONS | IMAGE_EXTENSIONS | _AST_CONFIG_EXTENSIONS
 _CODE_EXTENSIONS = CODE_EXTENSIONS
 
 
@@ -1547,6 +1548,15 @@ def _rebuild_code(
                     change_root=change_root,
                     watch_root=watch_root,
                 )
+                if any(cand.suffix.lower() in _AST_CONFIG_EXTENSIONS
+                       and _is_relative_to(cand, watch_root) for cand in candidates):
+                    # A component/dependency change can alter resolution in any
+                    # Haskell caller without changing its source content.
+                    wanted.extend(sorted(
+                        (p for p in code_set if p.suffix == ".hs" and p not in wanted),
+                        key=str,
+                    ))
+                    continue
                 tracked = next((cand for cand in candidates if cand.exists() and cand in code_set), None)
                 if tracked is not None:
                     if tracked not in wanted and tracked not in semantic_doc_set:
@@ -1653,6 +1663,11 @@ def _rebuild_code(
                     for marker in ("_callable", "_callable_class"):
                         if node.get(marker):
                             ctx_node[marker] = node[marker]
+                    if node.get("language") == "haskell" or str(source_file).endswith(".hs"):
+                        ctx_node.update({
+                            key: value for key, value in node.items()
+                            if key.startswith("_haskell_") or key in {"node_kind", "language"}
+                        })
                     resolution_context_nodes.append(ctx_node)
                 # #2437: the member-call resolvers map receiver type -> owning
                 # class -> method through contains/method edges; hand over the
@@ -2134,7 +2149,8 @@ def _notify_only(watch_path: Path) -> None:
 
 
 def _has_non_code(changed_paths: list[Path]) -> bool:
-    return any(p.suffix.lower() not in _CODE_EXTENSIONS for p in changed_paths)
+    return any(p.suffix.lower() not in _CODE_EXTENSIONS | _AST_CONFIG_EXTENSIONS
+               for p in changed_paths)
 
 
 def _batch_triggers_rebuild(batch: list[Path]) -> bool:
@@ -2146,7 +2162,7 @@ def _batch_triggers_rebuild(batch: list[Path]) -> bool:
     this, a doc-only deletion batch would sit behind the needs_update flag
     until the next code event or a manual `graphify update` (#2580).
     """
-    has_code = any(p.suffix.lower() in _CODE_EXTENSIONS for p in batch)
+    has_code = any(p.suffix.lower() in _CODE_EXTENSIONS | _AST_CONFIG_EXTENSIONS for p in batch)
     has_deletion = any(not p.exists() for p in batch)
     return has_code or has_deletion
 
